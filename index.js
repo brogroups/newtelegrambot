@@ -736,7 +736,7 @@ function scheduleDailyReportSending() {
 
 function adminMenu() {
   return Markup.keyboard([
-    ['📤 Barcha ishchilar ma\'lumotini yuklash'],
+    ['📤 Barcha ishchilar kunlik ma\'lumotini yuklash'],
     ['📋 Barcha ishchilar ro\'yxati']
   ]).resize();
 }
