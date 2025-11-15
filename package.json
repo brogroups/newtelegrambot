@@ -1,0 +1,18 @@
+{
+  "name": "telegram-bot",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node index.js",
+    "build": "echo 'Build successful - Node.js project'",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "dependencies": {
+    "dotenv": "^16.6.1",
+    "exceljs": "^4.4.0",
+    "fs": "^0.0.1-security",
+    "luxon": "^3.7.2",
+    "node-cron": "^4.2.1",
+    "telegraf": "^4.16.3"
+  }
+}
