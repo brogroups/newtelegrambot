@@ -239,26 +239,47 @@ const workSessionColumns = [
 
 async function generateUsersPersonalDataReport(fromDate = null, toDate = null) {
   try {
-    console.log('Barcha ishchilar shaxsiy ma\'lumotlarini yig\'ish boshlandi...');
+    console.log('Ishchilar shaxsiy ma\'lumotlarini yig\'ish boshlandi...');
 
     if (!fs.existsSync(USER_DATA_FILE)) {
       console.log(`users.json fayli topilmadi: ${USER_DATA_FILE}`);
       return null;
     }
 
-    const usersData = JSON.parse(fs.readFileSync(USER_DATA_FILE, 'utf8'));
-    const userIds = Object.keys(usersData).map(id => normalizeId(id));
-
-    if (userIds.length === 0) {
-      console.log('Hech qanday foydalanuvchi ma\'lumoti topilmadi');
+    if (!fs.existsSync(ARCHIVED_SESSIONS_FILE)) {
+      console.log('Arxiv fayli topilmadi');
       return null;
     }
 
-    console.log(`Jami foydalanuvchilar soni: ${userIds.length}`);
+    const usersData = JSON.parse(fs.readFileSync(USER_DATA_FILE, 'utf8'));
+    const content = fs.readFileSync(ARCHIVED_SESSIONS_FILE, 'utf8');
+    const archivedSessions = content ? JSON.parse(content) : [];
+
+    console.log(`Jami arxivlangan sessiyalar: ${archivedSessions.length}`);
 
     const today = getDate();
+    const useToday = !fromDate && !toDate;
+
+    const filteredSessions = archivedSessions.filter(session => {
+      if (!session || !session.date) return false;
+
+      if (useToday) {
+        return session.date === today;
+      } else if (fromDate && toDate) {
+        return session.date >= fromDate && session.date <= toDate;
+      }
+      return false;
+    });
+
+    console.log(`Filtrlangan sessiyalar: ${filteredSessions.length}`);
+
+    if (filteredSessions.length === 0) {
+      console.log('Hech qanday sessiya topilmadi');
+      return null;
+    }
+
     const dateStamp = fromDate && toDate ? `${fromDate}__${toDate}` : today;
-    const reportPath = path.join(DATA_DIR, `barcha_ishchilar_malumotlari_${dateStamp}.xlsx`);
+    const reportPath = path.join(DATA_DIR, `ishchilar_malumotlari_${dateStamp}_${Date.now()}.xlsx`);
     const workbook = new ExcelJS.Workbook();
     const worksheet = workbook.addWorksheet('Ishchilar ma\'lumotlari');
 
@@ -274,120 +295,63 @@ async function generateUsersPersonalDataReport(fromDate = null, toDate = null) {
     worksheet.getRow(1).alignment = { vertical: 'middle', horizontal: 'center' };
     worksheet.getRow(1).height = 22;
 
-    const allSessions = [];
-
-    if (fs.existsSync(ARCHIVED_SESSIONS_FILE)) {
-      const content = fs.readFileSync(ARCHIVED_SESSIONS_FILE, 'utf8');
-      const archivedSessions = content ? JSON.parse(content) : [];
-      console.log(`Arxivdan ${archivedSessions.length} ta sessiya o'qildi`);
-
-      archivedSessions.forEach(session => {
-        if (fromDate && toDate) {
-          if (session.date >= fromDate && session.date <= toDate) {
-            allSessions.push(session);
-          }
-        } else if (session.date === today) {
-          allSessions.push(session);
-        }
-      });
-
-      console.log(`Arxivdan filtrlangan sessiyalar: ${allSessions.length}`);
-    }
-
     let globalRowNum = 1;
 
-    for (const userId of userIds) {
+    for (const session of filteredSessions) {
       try {
-        const userIdNormalized = normalizeId(userId);
-        const user = usersData[userId] || usersData[userIdNormalized];
+        const telegramIdNormalized = normalizeId(session.telegramId);
+        const user = usersData[telegramIdNormalized];
 
         if (!user) {
-          console.log(`Foydalanuvchi ${userId} topilmadi`);
+          console.log(`Foydalanuvchi topilmadi ID: ${telegramIdNormalized}`);
           continue;
         }
 
-        const userSessions = allSessions.filter(session => {
-          const sessionId = normalizeId(session.telegramId);
-          return sessionId === userIdNormalized;
-        });
+        const otherExpenseName = session.otherExpenses && session.otherExpenses.length > 0
+          ? session.otherExpenses.map(e => e.name).join(', ')
+          : '';
+        const otherExpenseAmount = session.otherExpenses && session.otherExpenses.length > 0
+          ? session.otherExpenses.reduce((sum, e) => sum + (e.amount || 0), 0)
+          : 0;
 
-        console.log(`Ishchi: ${user.name || 'Noma\'lum'} (ID: ${userIdNormalized}), Sessiyalar: ${userSessions.length}`);
+        const rowData = {
+          rowNum: globalRowNum,
+          username: session.username || (user.username ? `@${user.username}` : ''),
+          telegramId: telegramIdNormalized,
+          name: session.name || user.name || '',
+          phone: session.phone || user.phone || '',
+          object: session.object || '',
+          date: session.date || '',
+          startTime: session.startTime || '',
+          endTime: session.endTime || '',
+          duration: session.duration || '',
+          startLocation: session.startLocation || '',
+          endLocation: session.endLocation || '',
+          avans: session.avans || 0,
+          taxiExpense: session.taxiExpense || 0,
+          foodExpense: session.foodExpense || 0,
+          otherExpenseName: otherExpenseName,
+          otherExpenseAmount: otherExpenseAmount,
+          totalExpense: session.totalExpense || 0,
+          hasDiploma: session.hasDiploma || (user.hasDiploma ? 'Mavjud' : 'Mavjud emas'),
+          hasVideo: session.hasVideo || '',
+          comments: session.comments || ''
+        };
 
-        if (userSessions.length === 0) {
-          const rowData = {
-            rowNum: globalRowNum,
-            username: user.username ? `@${user.username}` : '',
-            telegramId: userIdNormalized,
-            name: user.name || '',
-            phone: user.phone || '',
-            object: '',
-            date: '',
-            startTime: '',
-            endTime: '',
-            duration: '',
-            startLocation: '',
-            endLocation: '',
-            avans: '',
-            taxiExpense: '',
-            foodExpense: '',
-            otherExpenseName: '',
-            otherExpenseAmount: '',
-            totalExpense: '',
-            hasDiploma: user.hasDiploma ? 'Mavjud' : 'Mavjud emas',
-            hasVideo: '',
-            comments: ''
-          };
+        const newRow = worksheet.addRow(rowData);
+        newRow.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
+        newRow.height = 25;
 
-          const newRow = worksheet.addRow(rowData);
-          newRow.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
-          newRow.height = 25;
-
-          console.log(`Qator ${globalRowNum}: ${user.name || 'Noma\'lum'} (sessiya yo'q)`);
-          globalRowNum++;
-        } else {
-          for (const session of userSessions) {
-            const otherExpenseName = session.otherExpenses && session.otherExpenses.length > 0
-              ? session.otherExpenses.map(e => e.name).join(', ')
-              : '';
-            const otherExpenseAmount = session.otherExpenses && session.otherExpenses.length > 0
-              ? session.otherExpenses.reduce((sum, e) => sum + (e.amount || 0), 0)
-              : '';
-
-            const rowData = {
-              rowNum: globalRowNum,
-              username: user.username ? `@${user.username}` : '',
-              telegramId: userIdNormalized,
-              name: user.name || '',
-              phone: user.phone || '',
-              object: session.object || '',
-              date: session.date || '',
-              startTime: session.startTime || '',
-              endTime: session.endTime || '',
-              duration: session.duration || '',
-              startLocation: session.startLocation || '',
-              endLocation: session.endLocation || '',
-              avans: session.avans || 0,
-              taxiExpense: session.taxiExpense || 0,
-              foodExpense: session.foodExpense || 0,
-              otherExpenseName: otherExpenseName,
-              otherExpenseAmount: otherExpenseAmount,
-              totalExpense: session.totalExpense || 0,
-              hasDiploma: user.hasDiploma ? 'Mavjud' : 'Mavjud emas',
-              hasVideo: session.hasVideo || '',
-              comments: session.comments || ''
-            };
-
-            const newRow = worksheet.addRow(rowData);
-            newRow.alignment = { vertical: 'middle', horizontal: 'left', wrapText: true };
-            newRow.height = 25;
-
-            console.log(`Qator ${globalRowNum}: ${user.name} - Obyekt: ${session.object || 'N/A'}, Sana: ${session.date || 'N/A'}`);
-            globalRowNum++;
-          }
-        }
+        console.log(`Qator ${globalRowNum}: ${rowData.name} - ${rowData.date} - ${rowData.object}`);
+        globalRowNum++;
       } catch (error) {
-        console.error(`Foydalanuvchi ${userId} ni qo'shishda xatolik:`, error.message);
+        console.error(`Sessiyani qo'shishda xatolik:`, error.message);
       }
+    }
+
+    if (globalRowNum === 1) {
+      console.log('Hech qanday qator qo\'shilmadi');
+      return null;
     }
 
     await workbook.xlsx.writeFile(reportPath);
@@ -396,7 +360,7 @@ async function generateUsersPersonalDataReport(fromDate = null, toDate = null) {
 
     return reportPath;
   } catch (error) {
-    console.error('Barcha ishchilar ma\'lumotini yaratishda kritik xatolik:', error);
+    console.error('Ishchilar ma\'lumotini yaratishda kritik xatolik:', error);
     throw error;
   }
 }
@@ -736,7 +700,7 @@ function scheduleDailyReportSending() {
 
 function adminMenu() {
   return Markup.keyboard([
-    ['📤 Barcha ishchilar kunlik ma\'lumotini yuklash'],
+    ['📤 Ishchilarning kunlik ma\'lumotini yuklash'],
     ['📋 Barcha ishchilar ro\'yxati']
   ]).resize();
 }
@@ -857,7 +821,7 @@ bot.on('text', async (ctx) => {
     }
   }
 
-  if (text === 'Diplom mavjud emas') {
+  if (text === 'Diplom mavjud emas' || text.includes('Diplom mavjud emas')) {
     if (state === 'waiting_diplom_serial_or_skip') {
       user.hasDiploma = false;
       user.diplomSerial = 'Mavjud emas';
@@ -870,12 +834,12 @@ bot.on('text', async (ctx) => {
 
       userStates.set(userId, 'main_menu');
       await ctx.reply('Ro\'yxatdan o\'tish muvaffaqiyatli yakunlandi!', workerMenu());
+      return;
     }
-    return;
   }
 
   if (state === 'admin_menu' || isAdmin) {
-    if (text === 'Barcha ishchilar ma\'lumotini yuklash' || text.includes('Barcha ishchilar ma\'lumotini yuklash')) {
+    if (text === 'Ishchilarning kunlik ma\'lumotini yuklash' || text.includes('kunlik ma\'lumotini yuklash')) {
       try {
         await ctx.reply('Excel fayli tayyorlanmoqda, iltimos kuting...');
 
